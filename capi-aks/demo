@@ -1,0 +1,80 @@
+#!/bin/bash
+
+DEMO_DIR="$( dirname "${BASH_SOURCE[0]}" )"
+ROOT_DIR="$( cd ${DEMO_DIR}/.. && pwd)"
+
+. ${ROOT_DIR}/demo-magic
+
+TYPE_SPEED=30
+# PROMPT_AFTER=1
+DEMO_PROMPT="☸️ $ "
+NO_WAIT=1
+
+# function () {
+#   if [[ -n "${NO_WAIT}" ]]; then
+#     sleep 2
+#   else
+#     if [[ -n "${1-}" ]]; then
+#       sleep "$1"
+#     else
+#       
+#     fi
+#   fi
+# }
+
+function comment() {
+  echo -e '\033[0;33m>>> '$1' <<<\033[0m'
+  wait
+}
+
+comment "link to information for CAPI AKS"
+echo "https://capz.sigs.k8s.io/topics/managedcluster.html"
+
+comment "starting Kind cluster"
+
+pe "kind create cluster --kubeconfig=kind-capi-aks --name capi-aks"
+pe "export KUBECONFIG=kind-capi-aks"
+
+comment "set environment variable to enable experimental feature"
+pe "export EXP_MACHINE_POOL=true"
+pe "export EXP_AKS=true"
+
+comment "intialize CAPI with AKS support"
+pe "clusterctl init --infrastructure azure"
+
+comment "resources created by 'clusterctl init'"
+
+comment "'clusterctl init' installed cert-manager as prereq"
+pe "kubectl get pod -n cert-manager"
+pe "kubectl get crd | grep cert-manager.io"
+
+comment "TODO: more deep dive on resources created by 'clusterctl init'"
+pe "kubectl get pod -A"
+
+comment "Create Azure identity secret"
+pe 'export AZURE_CLUSTER_IDENTITY_SECRET_NAME="cluster-identity-secret"'
+pe 'export CLUSTER_IDENTITY_NAME="cluster-identity"'
+pe 'export AZURE_CLUSTER_IDENTITY_SECRET_NAMESPACE="default"'
+pe 'kubectl create secret generic "${AZURE_CLUSTER_IDENTITY_SECRET_NAME}" --from-literal=clientSecret="${AZURE_CLIENT_SECRET}"'
+
+comment "Create cluster provisioning yaml"
+pe 'export CLUSTER_NAME="my-cluster"'
+pe 'export WORKER_MACHINE_COUNT=2'
+pe 'export KUBERNETES_VERSION="v1.20.7"'
+pe 'export AZURE_LOCATION="centralus"'
+pe 'export AZURE_NODE_MACHINE_TYPE="Standard_D2s_v3"'
+
+pe 'clusterctl generate cluster ${CLUSTER_NAME} --kubernetes-version ${KUBERNETES_VERSION} --flavor aks > cluster.yaml'
+#NOTE: find yaml template
+
+comment "Applying cluster provisioning yaml"
+pe 'kubectl apply -f cluster.yaml'
+
+
+#TODO: wait for cluster provision to complete
+
+
+# comment "delete kind cluster"
+# pe "kind delete cluster --name capi-aks"
+
+
