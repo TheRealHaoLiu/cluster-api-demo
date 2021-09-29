@@ -1,0 +1,77 @@
+#!/bin/bash
+
+DEMO_DIR="$( dirname "${BASH_SOURCE[0]}" )"
+ROOT_DIR="$( cd ${DEMO_DIR}/.. && pwd)"
+
+. ${ROOT_DIR}/demo-magic
+. ${DEMO_DIR}/eks_related_yaml_template.sh
+
+TYPE_SPEED=30
+# PROMPT_AFTER=1
+DEMO_PROMPT="☸️ $ "
+NO_WAIT=1
+
+# function () {
+#   if [[ -n "${NO_WAIT}" ]]; then
+#     sleep 2
+#   else
+#     if [[ -n "${1-}" ]]; then
+#       sleep "$1"
+#     else
+#       
+#     fi
+#   fi
+# }
+
+
+
+function comment() {
+  echo -e '\033[0;33m>>> '$1' <<<\033[0m'
+  wait
+}
+
+
+
+comment "link to information for CAPI EKS"
+echo "https://cluster-api-aws.sigs.k8s.io/topics/eks/index.html"
+
+comment "starting Kind cluster"
+
+pe "kind create cluster --kubeconfig=kind-capi-eks --name capi-eks --image kindest/node:v1.21.1@sha256:69860bda5563ac81e3c0057d654b5253219618a22ec3a346306239bba8cfa1a6"
+pe "export KUBECONFIG=kind-capi-eks"
+
+comment "installing capi+capa with EKS enabled"
+
+pe "export EKS=true"
+pe "export EXP_MACHINE_POOL=true"
+pe "clusterctl init --infrastructure aws"
+
+comment "removing default credential from capa"
+pe "kubectl replace -f capa-deployment.yaml"
+pe "kubectl rollout status deployment capa-controller-manager -ncapa-system"
+pe "sleep 10"
+
+comment "create AWSStaticPrincipalTypeProvider for customized credential"
+generate_static_provider_cr
+pe "kubectl apply -f capi-eks-static.yaml"
+
+
+if [ -z "$CLUSTER_NAME" ]; then
+  pe "export CLUSTER_NAME=quickstart"
+fi
+comment "create EKS cluster capi-eks-${CLUSTER_NAME}"
+generate_eks_yaml
+pe "kubectl apply -f capi-eks-quickstart.yaml"
+
+comment "waiting 300 seconds for controlplane to be ready"
+pe "kubectl wait --for condition=Ready=true awsmanagedcontrolplane/capi-eks-${CLUSTER_NAME}-control-plane -ntest-eks --timeout 300s"
+pe "kubectl get awsmanagedcontrolplane -oyaml -ntest-eks capi-eks-${CLUSTER_NAME}-control-plane"
+
+comment "well, it may take 10-15 mins! you can check pod log in -n capa-system for more details."
+
+comment "waiting for machinepool"
+pe "kubectl wait machinepool/capi-eks-${CLUSTER_NAME}-pool-0 -ntest-eks --for condition=Ready=true"
+pe "kubectl get machinepool capi-eks-${CLUSTER_NAME}-pool-0 -ntest-eks -oyaml"
+
+comment "demo finished! You can delete your eks cluster with the following command: "
+comment "kubectl delete -f capi-eks-quickstart.yaml"
